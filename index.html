@@ -214,7 +214,7 @@ const Store={
 const DOWM=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function parseYmd(s){const[y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d);}
-function today(){const d=new Date();return new Date(d.getFullYear(),d.getMonth(),d.getDate());}
+function today(){const d=new Date();const c=(S&&S.settings&&S.settings.dayCutoff!=null)?S.settings.dayCutoff:4;d.setHours(d.getHours()-c);return new Date(d.getFullYear(),d.getMonth(),d.getDate());}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}
 function uid(){return Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);}
 function weekStartOf(d){const x=new Date(d);return addDays(x,-((x.getDay()+6)%7));}
@@ -294,7 +294,7 @@ function setEntry(d,k,v){entry(d)[k]=v;persist(true);}
 
 const app=document.getElementById('app');
 function render(){
-  document.getElementById('datestr').textContent=today().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
+  {const ds=document.getElementById('datestr');const real=new Date();const c=(S&&S.settings&&S.settings.dayCutoff!=null)?S.settings.dayCutoff:4;const carry=real.getHours()<c;ds.textContent=today().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})+(carry?' · still':'');}
   Object.values(charts).forEach(c=>{try{c.destroy()}catch(e){}});charts={};
   if(view==='today')renderToday();else if(view==='insights')renderInsights();else if(view==='recap')renderRecap();else renderManage();
 }
@@ -544,8 +544,8 @@ function renderManage(){
       ${wdEdit||'<div class="sub">No steps yet.</div>'}
       <div class="addbar"><input id="newwind" placeholder="New wind-down step…" maxlength="50" style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.2);color:#fff"><button class="btn" data-act="addWind" style="background:var(--plum)">Add</button></div>
       <div class="sleeprow" style="margin-top:14px"><div class="field"><label style="color:#B9B0C9">Target bedtime</label><input type="time" id="tgtbed" value="${S.settings.targetBedtime}" style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.2);color:#fff"></div></div></div>
-    <div class="card"><h2>Sleep target</h2><div class="sub">Threshold used in the sleep-vs-energy insight.</div>
-      <div class="sleeprow"><div class="field"><label>Target hours</label><input type="number" id="sleeptarget" min="4" max="12" step="0.5" value="${S.settings.sleepTarget}"></div></div></div>
+    <div class="card"><h2>Day &amp; sleep</h2><div class="sub">Tune when your day flips over and your sleep goal.</div>
+      <div class="sleeprow"><div class="field"><label>New day starts at</label><input type="number" id="daycutoff" min="0" max="9" step="1" value="${S.settings.dayCutoff}"></div><div class="field"><label>Sleep target (h)</label><input type="number" id="sleeptarget" min="4" max="12" step="0.5" value="${S.settings.sleepTarget}"></div></div><div class="sub" style="margin:10px 0 0">A late check-in before this hour still counts for the day you were awake. ${S.settings.dayCutoff}:00 means anything you log before ${S.settings.dayCutoff} am belongs to the previous calendar day.</div></div>
     <div class="card"><h2>Your data</h2><div class="sub">Stored on this device. Export regularly as backup.</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" data-act="export">Export JSON</button><button class="btn ghost sm" data-act="import">Import</button><button class="btn sm danger" data-act="reset">Reset everything</button></div>
       <input type="file" id="importfile" accept="application/json" style="display:none"></div>
@@ -588,6 +588,7 @@ document.body.addEventListener('input',e=>{const t=e.target;
   else if(t.id==='journal')setEntry(todayKey(),'journal',t.value);
   else if(t.id==='bed'||t.id==='wake'){setEntry(todayKey(),t.id,t.value);const en=S.daily[todayKey()],sl=durH(en.bed,en.wake),c=document.getElementById('sleepcalc');if(c)c.textContent=sl?sl.toFixed(1)+' h in bed':'Enter both times to see duration';}
   else if(t.id==='sleeptarget'){S.settings.sleepTarget=+t.value||8;persist();}
+  else if(t.id==='daycutoff'){let v=parseInt(t.value);if(isNaN(v))v=4;v=Math.max(0,Math.min(9,v));S.settings.dayCutoff=v;persist();}
   else if(t.id==='tgtbed'){S.settings.targetBedtime=t.value||'23:00';persist();}
   else if(t.id==='planfirst'){const tom=ymd(addDays(today(),1)),en=entry(tom);if(!en.plan)en.plan={};en.plan.first=t.value;persist(true);}
   else if(t.id==='planint'){const tom=ymd(addDays(today(),1)),en=entry(tom);if(!en.plan)en.plan={};en.plan.intention=t.value;persist(true);}
@@ -599,6 +600,7 @@ function migrate(){
   if(!S.settings)S.settings={};
   if(S.settings.sleepTarget==null)S.settings.sleepTarget=8;
   if(!S.settings.targetBedtime)S.settings.targetBedtime='23:00';
+  if(S.settings.dayCutoff==null)S.settings.dayCutoff=4;
   if(!S.settings.windDown)S.settings.windDown=['No screens 30 min before bed','Lower the lights','Write down tomorrow first task','5-min stretch'];
   (S.habits||[]).forEach(h=>{if(!h.type)h.type='scheduled';if(h.type==='weekly'&&!h.target)h.target=3;if(!h.days)h.days=[];});
   if(!S.weeklyNotes)S.weeklyNotes={};
