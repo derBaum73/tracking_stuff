@@ -142,6 +142,15 @@ textarea:focus{outline:none;border-color:var(--sage)}
 .wdstep{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--paper2)}
 .wdstep:last-child{border-bottom:none}.wdstep .t{flex:1;font-size:14.5px}
 
+.snzbtn{background:none;border:none;color:var(--sky);cursor:pointer;font-size:12.5px;font-weight:700;padding:4px 8px;flex:none;font-family:inherit}
+.frchip.snz{border-color:var(--sky);color:var(--sky)}
+.frchip.snz:hover{background:var(--sky);color:#fff}
+.laterhead{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--ink2);margin:16px 0 6px;padding-left:4px}
+.laterrow{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--paper2);opacity:.85}
+.laterrow:last-child{border-bottom:none}
+.laterrow .lname{flex:1;font-weight:600;font-size:14.5px;color:var(--ink2)}
+.laterrow .lback{font-size:11.5px;font-weight:700;color:var(--sky);background:#E7EEF5;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.donow{background:none;border:1px solid var(--line);border-radius:9px;color:var(--ink);font-weight:700;font-size:12px;padding:5px 9px;cursor:pointer;font-family:inherit}
 .plan-banner{background:linear-gradient(135deg,#3E7C6A,#2E5E50);color:#F6F1E9;border-color:#2E5E50}
 .plan-banner .section-eyebrow{color:#fff}
 .planfirst{display:flex;gap:12px;align-items:center;margin-top:4px}
@@ -223,7 +232,7 @@ function bedMins(b){if(!b)return null;const[h,m]=b.split(':').map(Number);let v=
 function minsToClock(v){v=((v%1440)+1440)%1440;v=(v+1080)%1440;const h=Math.floor(v/60),m=Math.round(v%60);return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');}
 function clockToMin(t){if(!t)return null;const[h,m]=t.split(':').map(Number);return h*60+m;}
 
-let S=null,rangeDays=30,charts={},view='today',saveTimer=null,frictionOpen=null,recapWeek=0;
+let S=null,rangeDays=30,charts={},view='today',saveTimer=null,frictionOpen=null,snoozeOpen=null,recapWeek=0;
 const FRICTION=['Too big / unclear','Boring','Not sure how to start','Waiting on someone','Low energy','Feels stressful','Not important'];
 const todayKey=()=>ymd(today());
 
@@ -299,6 +308,14 @@ function render(){
   if(view==='today')renderToday();else if(view==='insights')renderInsights();else if(view==='recap')renderRecap();else renderManage();
 }
 
+function isSnoozed(t){return t.snoozeUntil&&parseYmd(t.snoozeUntil)>today();}
+function taskSince(t){return t.since||t.createdAt;}
+function taskAge(t){return Math.max(0,Math.round((today()-parseYmd(taskSince(t)))/86400000));}
+function snoozeOpts(id){
+  const dow=today().getDay();let wkndDays=(6-dow+7)%7;if(wkndDays===0)wkndDays=7;
+  const opts=[['Tomorrow',1],['This weekend',wkndDays],['Next week',7],['In 2 weeks',14]];
+  return `<div class="frchips">${opts.map(o=>`<button class="frchip snz" data-act="snzPick" data-id="${id}" data-days="${o[1]}">${o[0]}</button>`).join('')}<label class="frchip snz" style="cursor:pointer">Pick date<input type="date" data-snz="${id}" style="display:none"></label></div>`;
+}
 function renderToday(){
   const tk=todayKey(),due=dueToday(),e=S.daily[tk]||{};
 
@@ -322,15 +339,22 @@ function renderToday(){
     return `<div class="row ${on?'done':''}"><div class="check ${on?'on':''}" data-act="toggleHabit" data-id="${h.id}"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 6"/></svg></div><div class="label"><div class="name">${esc(h.name)}</div><div class="meta">${meta}</div></div></div>`;
   }).join(''):`<div class="empty"><div class="big">Nothing scheduled today</div>Enjoy it, or add a habit in Manage.</div>`;
 
-  const pending=S.tasks.filter(t=>!t.completedAt).sort((a,b)=>a.createdAt<b.createdAt?-1:1);
+  const allOpen=S.tasks.filter(t=>!t.completedAt);
+  const pending=allOpen.filter(t=>!isSnoozed(t)).sort((a,b)=>taskSince(a)<taskSince(b)?-1:1);
+  const later=allOpen.filter(isSnoozed).sort((a,b)=>a.snoozeUntil<b.snoozeUntil?-1:1);
   const tasksHtml=pending.length?pending.map(t=>{
-    const age=Math.round((today()-parseYmd(t.createdAt))/86400000),cls=age>=5?'hot':age>=2?'warm':'fresh',lbl=age===0?'today':age===1?'1 day':age+' days';
+    const age=taskAge(t),cls=age>=5?'hot':age>=2?'warm':'fresh',lbl=age===0?'today':age===1?'1 day':age+' days';
     const lastFr=(t.frictions&&t.frictions.length)?t.frictions[t.frictions.length-1].reason:null;
-    const open=frictionOpen===t.id;
+    const fOpen=frictionOpen===t.id,sOpen=snoozeOpen===t.id;
     let fr='';
-    if(age>=2){fr=`<div class="frwrap"><button class="frbtn" data-act="frToggle" data-id="${t.id}">${lastFr?'Why: '+esc(lastFr)+' · change':'Why am I putting this off?'}</button>${open?`<div class="frchips">${FRICTION.map(r=>`<button class="frchip ${lastFr===r?'on':''}" data-act="frPick" data-id="${t.id}" data-r="${esc(r)}">${esc(r)}</button>`).join('')}</div>`:''}</div>`;}
-    return `<div class="taskwrap"><div class="row"><div class="check" data-act="doneTask" data-id="${t.id}"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 6"/></svg></div><div class="label"><div class="name">${esc(t.name)}</div><div class="meta"><span class="age ${cls}">open ${lbl}</span></div></div><button class="del" data-act="delTask" data-id="${t.id}">×</button></div>${fr}</div>`;
+    if(age>=2){fr=`<div class="frwrap"><button class="frbtn" data-act="frToggle" data-id="${t.id}">${lastFr?'Why: '+esc(lastFr)+' · change':'Why am I putting this off?'}</button>${fOpen?`<div class="frchips">${FRICTION.map(r=>`<button class="frchip ${lastFr===r?'on':''}" data-act="frPick" data-id="${t.id}" data-r="${esc(r)}">${esc(r)}</button>`).join('')}</div>`:''}</div>`;}
+    const snz=sOpen?`<div class="frwrap">${snoozeOpts(t.id)}</div>`:'';
+    return `<div class="taskwrap"><div class="row"><div class="check" data-act="doneTask" data-id="${t.id}"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 6"/></svg></div><div class="label"><div class="name">${esc(t.name)}</div><div class="meta"><span class="age ${cls}">open ${lbl}</span></div></div><button class="snzbtn" data-act="snzToggle" data-id="${t.id}">Later</button><button class="del" data-act="delTask" data-id="${t.id}">×</button></div>${snz}${fr}</div>`;
   }).join(''):`<div class="empty">No open tasks. Clean slate.</div>`;
+  const laterHtml=later.length?`<div class="laterhead">Later · parked</div>`+later.map(t=>{
+    const back=parseYmd(t.snoozeUntil).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+    return `<div class="laterrow"><span class="lname">${esc(t.name)}</span><span class="lback">back ${back}</span><button class="donow" data-act="doNow" data-id="${t.id}">Now</button><button class="del" data-act="delTask" data-id="${t.id}">×</button></div>`;
+  }).join(''):'';
 
   const sl=durH(e.bed,e.wake);
   const wd=S.settings.windDown||[],wdDone=e.windDone||[];
@@ -348,7 +372,7 @@ function renderToday(){
     ${hint}
     ${planBanner}
     <div class="card"><h2>Habits <span style="font-weight:400;color:var(--ink2);font-size:14px">· today</span></h2><div class="sub">Recurring routines. Tap to check off.</div>${habitsHtml}</div>
-    <div class="card"><h2>Tasks</h2><div class="sub">One-off things. They stay until done, no manual moving. Older = louder.</div>${tasksHtml}<div class="addbar"><input id="newtask" placeholder="Add a task you keep putting off…" maxlength="80"><button class="btn" data-act="addTask">Add</button></div></div>
+    <div class="card"><h2>Tasks</h2><div class="sub">One-off things. Stay until done. Blocked or planned-for-later? Hit Later to park them.</div>${tasksHtml}${laterHtml}<div class="addbar"><input id="newtask" placeholder="Add a task you keep putting off…" maxlength="80"><button class="btn" data-act="addTask">Add</button></div></div>
     <div class="card full"><h2>Check-in <span class="saved" id="savedflag">saved</span></h2><div class="sub">Best done in the evening. Rate all three honestly — energy and focus are harder to fake than mood.</div>
       ${slider('mood','Mood','low','high',e.mood,'var(--gold)')}
       ${slider('energy','Energy','flat','charged',e.energy,'var(--sage)')}
@@ -439,10 +463,10 @@ function buildHeat(){
 }
 
 function buildTaskStats(){
-  const done=S.tasks.filter(t=>t.completedAt),pending=S.tasks.filter(t=>!t.completedAt);
-  let avgDelay=null;if(done.length)avgDelay=done.reduce((a,t)=>a+Math.round((parseYmd(t.completedAt)-parseYmd(t.createdAt))/86400000),0)/done.length;
-  const oldest=pending.length?pending.reduce((a,t)=>parseYmd(t.createdAt)<parseYmd(a.createdAt)?t:a):null;
-  const oldAge=oldest?Math.round((today()-parseYmd(oldest.createdAt))/86400000):null;
+  const done=S.tasks.filter(t=>t.completedAt),pending=S.tasks.filter(t=>!t.completedAt&&!isSnoozed(t)),parked=S.tasks.filter(t=>!t.completedAt&&isSnoozed(t));
+  let avgDelay=null;if(done.length)avgDelay=done.reduce((a,t)=>a+Math.max(0,Math.round((parseYmd(t.completedAt)-parseYmd(taskSince(t)))/86400000)),0)/done.length;
+  const oldest=pending.length?pending.reduce((a,t)=>parseYmd(taskSince(t))<parseYmd(taskSince(a))?t:a):null;
+  const oldAge=oldest?taskAge(oldest):null;
   return `<div class="statcards" style="margin-bottom:0">
     <div class="stat"><div class="n">${pending.length}</div><div class="l">Open now</div></div>
     <div class="stat"><div class="n">${done.length}</div><div class="l">Completed</div></div>
@@ -500,7 +524,8 @@ function renderRecap(){
     return {name:h.name,txt:due?done+' / '+due:'—',met:due&&done===due};
   });
   const doneTasks=S.tasks.filter(t=>t.completedAt&&inWeek(t.completedAt));
-  const openTasks=S.tasks.filter(t=>!t.completedAt);
+  const openTasks=S.tasks.filter(t=>!t.completedAt&&!isSnoozed(t));
+  const parkedCount=S.tasks.filter(t=>!t.completedAt&&isSnoozed(t)).length;
   const frTally={};S.tasks.forEach(t=>(t.frictions||[]).forEach(f=>{if(inWeek(f.date))frTally[f.reason]=(frTally[f.reason]||0)+1;}));
   const frSorted=Object.entries(frTally).sort((a,b)=>b[1]-a[1]);
   const wdLen=(S.settings.windDown||[]).length;
@@ -522,7 +547,7 @@ function renderRecap(){
     ${gapNote}${frNote}
     <div class="card"><h2>Habits this week</h2><div class="bars" style="margin-top:6px">${habitRows.length?habitRows.map(r=>`<div class="barrow"><span class="bl">${esc(r.name)}</span><div style="flex:1"></div><span style="font-weight:700;color:${r.met?'var(--sage)':'var(--ink2)'}">${r.txt}</span></div>`).join(''):'<div class="empty">No habits.</div>'}</div></div>
     <div class="card"><h2>How you felt</h2><div class="sub">Averages across the week, out of 5.</div><div class="bars">${recapBar('Mood',mood,'var(--gold)')}${recapBar('Energy',en,'var(--sage)')}${recapBar('Focus',fo,'var(--sky)')}${recapBar('Sleep quality',avgQ,'var(--clay)')}</div>${wdAvg!=null?`<div class="sub" style="margin:12px 0 0">Wind-down completed on <b>${Math.round(wdAvg*100)}%</b> of evenings.</div>`:''}</div>
-    <div class="card"><h2>Loose ends</h2><div class="sub">Still open right now.</div>${openTasks.length?openTasks.slice(0,6).map(t=>{const a=Math.round((today()-parseYmd(t.createdAt))/86400000);return `<div class="row"><div class="label"><div class="name">${esc(t.name)}</div><div class="meta"><span class="age ${a>=5?'hot':a>=2?'warm':'fresh'}">open ${a}d</span></div></div></div>`;}).join(''):'<div class="empty">Nothing open. Clean.</div>'}</div>
+    <div class="card"><h2>Loose ends</h2><div class="sub">Genuinely open right now${parkedCount?', plus '+parkedCount+' parked for later':''}.</div>${openTasks.length?openTasks.slice(0,6).map(t=>{const a=taskAge(t);return `<div class="row"><div class="label"><div class="name">${esc(t.name)}</div><div class="meta"><span class="age ${a>=5?'hot':a>=2?'warm':'fresh'}">open ${a}d</span></div></div></div>`;}).join(''):'<div class="empty">Nothing open. Clean.</div>'}</div>
     <div class="card"><h2>One thing to change</h2><div class="sub">The whole point of looking back. One concrete change beats five vague ones.</div><textarea id="weeklynote" data-wk="${wkKey}" placeholder="Next week I will…">${esc(note)}</textarea></div>`;
 }
 function renderManage(){
@@ -578,6 +603,9 @@ document.body.addEventListener('click',e=>{
   else if(act==='dismissHint'){S.settings.reminderHintDismissed=true;persist();renderToday();}
   else if(act==='frToggle'){frictionOpen=frictionOpen===id?null:id;renderToday();}
   else if(act==='frPick'){const t=S.tasks.find(x=>x.id===id);if(t){if(!t.frictions)t.frictions=[];t.frictions.push({date:todayKey(),reason:el.dataset.r});}frictionOpen=null;persist(true);renderToday();}
+  else if(act==='snzToggle'){snoozeOpen=snoozeOpen===id?null:id;frictionOpen=null;renderToday();}
+  else if(act==='snzPick'){const t=S.tasks.find(x=>x.id===id);if(t){const back=ymd(addDays(today(),parseInt(el.dataset.days)));t.snoozeUntil=back;t.since=back;}snoozeOpen=null;persist(true);renderToday();}
+  else if(act==='doNow'){const t=S.tasks.find(x=>x.id===id);if(t){t.snoozeUntil=null;t.since=todayKey();}persist(true);renderToday();}
   else if(act==='recapPrev'){recapWeek-=1;renderRecap();}
   else if(act==='recapNext'){recapWeek=Math.min(0,recapWeek+1);renderRecap();}
 });
@@ -594,7 +622,9 @@ document.body.addEventListener('input',e=>{const t=e.target;
   else if(t.id==='planint'){const tom=ymd(addDays(today(),1)),en=entry(tom);if(!en.plan)en.plan={};en.plan.intention=t.value;persist(true);}
   else if(t.id==='weeklynote'){const wk=t.dataset.wk;if(!S.weeklyNotes)S.weeklyNotes={};S.weeklyNotes[wk]=t.value;persist();}
 });
-document.body.addEventListener('change',e=>{if(e.target.id!=='importfile')return;const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const o=JSON.parse(r.result);if(o.habits&&o.daily){S=o;migrate();persist();alert('Imported.');renderManage();}else alert('That file is not a Groundwork backup.');}catch(err){alert('Could not read that file.');}};r.readAsText(f);});
+document.body.addEventListener('change',e=>{
+  if(e.target.dataset&&e.target.dataset.snz){const id=e.target.dataset.snz,t=S.tasks.find(x=>x.id===id);if(t&&e.target.value){t.snoozeUntil=e.target.value;t.since=e.target.value;}snoozeOpen=null;persist(true);renderToday();return;}
+  if(e.target.id!=='importfile')return;const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const o=JSON.parse(r.result);if(o.habits&&o.daily){S=o;migrate();persist();alert('Imported.');renderManage();}else alert('That file is not a Groundwork backup.');}catch(err){alert('Could not read that file.');}};r.readAsText(f);});
 
 function migrate(){
   if(!S.settings)S.settings={};
@@ -603,6 +633,7 @@ function migrate(){
   if(S.settings.dayCutoff==null)S.settings.dayCutoff=4;
   if(!S.settings.windDown)S.settings.windDown=['No screens 30 min before bed','Lower the lights','Write down tomorrow first task','5-min stretch'];
   (S.habits||[]).forEach(h=>{if(!h.type)h.type='scheduled';if(h.type==='weekly'&&!h.target)h.target=3;if(!h.days)h.days=[];});
+  (S.tasks||[]).forEach(t=>{if(!t.since)t.since=t.createdAt;if(t.snoozeUntil===undefined)t.snoozeUntil=null;});
   if(!S.weeklyNotes)S.weeklyNotes={};
 }
 
